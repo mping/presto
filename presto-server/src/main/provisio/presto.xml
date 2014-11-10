@@ -74,6 +74,12 @@
         </artifact>
     </artifactSet>
 
+    <artifactSet to="plugin/hll">
+        <artifact id="${project.groupId}:presto-hll:zip:${project.version}">
+            <unpack />
+        </artifact>
+    </artifactSet>
+
     <artifactSet to="plugin/mysql">
         <artifact id="${project.groupId}:presto-mysql:zip:${project.version}">
             <unpack />
