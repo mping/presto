@@ -19,13 +19,11 @@ import com.facebook.presto.metadata.MetadataUtil;
 import com.facebook.presto.metadata.QualifiedTableName;
 import com.facebook.presto.metadata.TableHandle;
 import com.facebook.presto.spi.ColumnMetadata;
+import com.facebook.presto.spi.SchemaTableName;
 import com.facebook.presto.spi.type.Type;
 import com.facebook.presto.sql.parser.SqlParser;
 import com.facebook.presto.sql.tree.AllColumns;
-import com.facebook.presto.sql.tree.Approximate;
-import com.facebook.presto.sql.tree.BooleanLiteral;
 import com.facebook.presto.sql.tree.Cast;
-import com.facebook.presto.sql.tree.CoalesceExpression;
 import com.facebook.presto.sql.tree.CreateTable;
 import com.facebook.presto.sql.tree.CreateView;
 import com.facebook.presto.sql.tree.DefaultTraversalVisitor;
@@ -34,13 +32,12 @@ import com.facebook.presto.sql.tree.ExplainFormat;
 import com.facebook.presto.sql.tree.ExplainOption;
 import com.facebook.presto.sql.tree.ExplainType;
 import com.facebook.presto.sql.tree.Expression;
-import com.facebook.presto.sql.tree.IfExpression;
 import com.facebook.presto.sql.tree.Insert;
 import com.facebook.presto.sql.tree.LikePredicate;
 import com.facebook.presto.sql.tree.LongLiteral;
 import com.facebook.presto.sql.tree.QualifiedName;
 import com.facebook.presto.sql.tree.Query;
-import com.facebook.presto.sql.tree.QuerySpecification;
+import com.facebook.presto.sql.tree.Relation;
 import com.facebook.presto.sql.tree.Row;
 import com.facebook.presto.sql.tree.SelectItem;
 import com.facebook.presto.sql.tree.ShowCatalogs;
@@ -60,6 +57,7 @@ import com.facebook.presto.sql.tree.With;
 import com.facebook.presto.sql.tree.WithQuery;
 import com.google.common.base.Joiner;
 import com.google.common.collect.ImmutableList;
+import com.google.common.primitives.Ints;
 
 import java.util.HashSet;
 import java.util.List;
@@ -78,15 +76,19 @@ import static com.facebook.presto.connector.system.CatalogSystemTable.CATALOG_TA
 import static com.facebook.presto.spi.type.BigintType.BIGINT;
 import static com.facebook.presto.sql.QueryUtil.aliased;
 import static com.facebook.presto.sql.QueryUtil.aliasedName;
+import static com.facebook.presto.sql.QueryUtil.aliasedNullToEmpty;
+import static com.facebook.presto.sql.QueryUtil.aliasedYesNoToBoolean;
 import static com.facebook.presto.sql.QueryUtil.ascending;
 import static com.facebook.presto.sql.QueryUtil.caseWhen;
 import static com.facebook.presto.sql.QueryUtil.equal;
 import static com.facebook.presto.sql.QueryUtil.functionCall;
 import static com.facebook.presto.sql.QueryUtil.logicalAnd;
 import static com.facebook.presto.sql.QueryUtil.nameReference;
+import static com.facebook.presto.sql.QueryUtil.ordering;
 import static com.facebook.presto.sql.QueryUtil.row;
 import static com.facebook.presto.sql.QueryUtil.selectAll;
 import static com.facebook.presto.sql.QueryUtil.selectList;
+import static com.facebook.presto.sql.QueryUtil.simpleQuery;
 import static com.facebook.presto.sql.QueryUtil.subquery;
 import static com.facebook.presto.sql.QueryUtil.table;
 import static com.facebook.presto.sql.QueryUtil.unaliasedName;
@@ -100,6 +102,8 @@ import static com.facebook.presto.sql.analyzer.SemanticErrorCode.MISMATCHED_SET_
 import static com.facebook.presto.sql.analyzer.SemanticErrorCode.MISSING_TABLE;
 import static com.facebook.presto.sql.analyzer.SemanticErrorCode.NOT_SUPPORTED;
 import static com.facebook.presto.sql.analyzer.SemanticErrorCode.TABLE_ALREADY_EXISTS;
+import static com.facebook.presto.sql.tree.BooleanLiteral.FALSE_LITERAL;
+import static com.facebook.presto.sql.tree.BooleanLiteral.TRUE_LITERAL;
 import static com.facebook.presto.sql.tree.ExplainFormat.Type.TEXT;
 import static com.facebook.presto.sql.tree.ExplainType.Type.LOGICAL;
 import static com.google.common.base.Preconditions.checkNotNull;
@@ -161,20 +165,11 @@ class StatementAnalyzer
             predicate = logicalAnd(predicate, likePredicate);
         }
 
-        Query query = new Query(
-                Optional.empty(),
-                new QuerySpecification(
-                        selectList(aliasedName("table_name", "Table")),
-                        table(QualifiedName.of(catalogName, TABLE_TABLES.getSchemaName(), TABLE_TABLES.getTableName())),
-                        Optional.of(predicate),
-                        ImmutableList.<Expression>of(),
-                        Optional.empty(),
-                        ImmutableList.of(ascending("table_name")),
-                        Optional.empty()
-                ),
-                ImmutableList.<SortItem>of(),
-                Optional.empty(),
-                Optional.empty());
+        Query query = simpleQuery(
+                selectList(aliasedName("table_name", "Table")),
+                from(catalogName, TABLE_TABLES),
+                predicate,
+                ordering(ascending("table_name")));
 
         return process(query, context);
     }
@@ -182,20 +177,10 @@ class StatementAnalyzer
     @Override
     protected TupleDescriptor visitShowSchemas(ShowSchemas node, AnalysisContext context)
     {
-        Query query = new Query(
-                Optional.empty(),
-                new QuerySpecification(
-                        selectList(aliasedName("schema_name", "Schema")),
-                        table(QualifiedName.of(node.getCatalog().orElse(session.getCatalog()), TABLE_SCHEMATA.getSchemaName(), TABLE_SCHEMATA.getTableName())),
-                        Optional.empty(),
-                        ImmutableList.<Expression>of(),
-                        Optional.empty(),
-                        ImmutableList.of(ascending("schema_name")),
-                        Optional.empty()
-                ),
-                ImmutableList.<SortItem>of(),
-                Optional.empty(),
-                Optional.empty());
+        Query query = simpleQuery(
+                selectList(aliasedName("schema_name", "Schema")),
+                from(node.getCatalog().orElse(session.getCatalog()), TABLE_SCHEMATA),
+                ordering(ascending("schema_name")));
 
         return process(query, context);
     }
@@ -203,20 +188,10 @@ class StatementAnalyzer
     @Override
     protected TupleDescriptor visitShowCatalogs(ShowCatalogs node, AnalysisContext context)
     {
-        Query query = new Query(
-                Optional.empty(),
-                new QuerySpecification(
-                        selectList(aliasedName("catalog_name", "Catalog")),
-                        table(QualifiedName.of(session.getCatalog(), CATALOG_TABLE_NAME.getSchemaName(), CATALOG_TABLE_NAME.getTableName())),
-                        Optional.empty(),
-                        ImmutableList.<Expression>of(),
-                        Optional.empty(),
-                        ImmutableList.of(ascending("catalog_name")),
-                        Optional.empty()
-                ),
-                ImmutableList.<SortItem>of(),
-                Optional.empty(),
-                Optional.empty());
+        Query query = simpleQuery(
+                selectList(aliasedName("catalog_name", "Catalog")),
+                from(session.getCatalog(), CATALOG_TABLE_NAME),
+                ordering(ascending("catalog_name")));
 
         return process(query, context);
     }
@@ -231,27 +206,18 @@ class StatementAnalyzer
             throw new SemanticException(MISSING_TABLE, showColumns, "Table '%s' does not exist", tableName);
         }
 
-        Query query = new Query(
-                Optional.empty(),
-                new QuerySpecification(
-                        selectList(
-                                aliasedName("column_name", "Column"),
-                                aliasedName("data_type", "Type"),
-                                aliasedYesNoToBoolean("is_nullable", "Null"),
-                                aliasedYesNoToBoolean("is_partition_key", "Partition Key"),
-                                aliasedNullToEmpty("comment", "Comment")),
-                        table(QualifiedName.of(tableName.getCatalogName(), TABLE_COLUMNS.getSchemaName(), TABLE_COLUMNS.getTableName())),
-                        Optional.of(logicalAnd(
-                                equal(nameReference("table_schema"), new StringLiteral(tableName.getSchemaName())),
-                                equal(nameReference("table_name"), new StringLiteral(tableName.getTableName())))),
-                        ImmutableList.<Expression>of(),
-                        Optional.empty(),
-                        ImmutableList.of(ascending("ordinal_position")),
-                        Optional.empty()
-                ),
-                ImmutableList.<SortItem>of(),
-                Optional.empty(),
-                Optional.empty());
+        Query query = simpleQuery(
+                selectList(
+                        aliasedName("column_name", "Column"),
+                        aliasedName("data_type", "Type"),
+                        aliasedYesNoToBoolean("is_nullable", "Null"),
+                        aliasedYesNoToBoolean("is_partition_key", "Partition Key"),
+                        aliasedNullToEmpty("comment", "Comment")),
+                from(tableName.getCatalogName(), TABLE_COLUMNS),
+                logicalAnd(
+                        equal(nameReference("table_schema"), new StringLiteral(tableName.getSchemaName())),
+                        equal(nameReference("table_name"), new StringLiteral(tableName.getTableName()))),
+                ordering(ascending("ordinal_position")));
 
         return process(query, context);
     }
@@ -260,20 +226,6 @@ class StatementAnalyzer
     protected TupleDescriptor visitUse(Use node, AnalysisContext context)
     {
         throw new SemanticException(NOT_SUPPORTED, node, "USE statement is not supported");
-    }
-
-    private static SelectItem aliasedYesNoToBoolean(String column, String alias)
-    {
-        Expression expression = new IfExpression(
-                equal(nameReference(column), new StringLiteral("YES")),
-                BooleanLiteral.TRUE_LITERAL,
-                BooleanLiteral.FALSE_LITERAL);
-        return new SingleColumn(expression, alias);
-    }
-
-    private static SelectItem aliasedNullToEmpty(String column, String alias)
-    {
-        return new SingleColumn(new CoalesceExpression(nameReference(column), new StringLiteral("")), alias);
     }
 
     @Override
@@ -316,38 +268,28 @@ class StatementAnalyzer
             wrappedList.add(unaliasedName(column.getName()));
         }
 
-        Query query = new Query(
+        Query query = simpleQuery(
+                selectAll(selectList.build()),
+                from(table.getCatalogName(), TABLE_INTERNAL_PARTITIONS),
+                Optional.of(logicalAnd(
+                        equal(nameReference("table_schema"), new StringLiteral(table.getSchemaName())),
+                        equal(nameReference("table_name"), new StringLiteral(table.getTableName())))),
+                ImmutableList.of(nameReference("partition_number")),
                 Optional.empty(),
-                new QuerySpecification(
-                        selectAll(selectList.build()),
-                        table(QualifiedName.of(table.getCatalogName(), TABLE_INTERNAL_PARTITIONS.getSchemaName(), TABLE_INTERNAL_PARTITIONS.getTableName())),
-                        Optional.of(logicalAnd(
-                                equal(nameReference("table_schema"), new StringLiteral(table.getSchemaName())),
-                                equal(nameReference("table_name"), new StringLiteral(table.getTableName())))),
-                        ImmutableList.of(nameReference("partition_number")),
-                        Optional.empty(),
-                        ImmutableList.<SortItem>of(),
-                        Optional.empty()),
-                ImmutableList.<SortItem>of(),
-                Optional.empty(),
+                ImmutableList.of(),
                 Optional.empty());
 
-        query = new Query(
+        query = simpleQuery(
+                selectAll(wrappedList.build()),
+                subquery(query),
+                showPartitions.getWhere(),
+                ImmutableList.of(),
                 Optional.empty(),
-                new QuerySpecification(
-                        selectAll(wrappedList.build()),
-                        subquery(query),
-                        showPartitions.getWhere(),
-                        ImmutableList.<Expression>of(),
-                        Optional.empty(),
-                        ImmutableList.<SortItem>builder()
-                                .addAll(showPartitions.getOrderBy())
-                                .add(ascending("partition_number"))
-                                .build(),
-                        showPartitions.getLimit()),
-                ImmutableList.<SortItem>of(),
-                Optional.empty(),
-                Optional.empty());
+                ImmutableList.<SortItem>builder()
+                        .addAll(showPartitions.getOrderBy())
+                        .add(ascending("partition_number"))
+                        .build(),
+                showPartitions.getLimit());
 
         return process(query, context);
     }
@@ -355,30 +297,19 @@ class StatementAnalyzer
     @Override
     protected TupleDescriptor visitShowFunctions(ShowFunctions node, AnalysisContext context)
     {
-        Query query = new Query(
-                Optional.empty(),
-                new QuerySpecification(
-                        selectList(
-                                aliasedName("function_name", "Function"),
-                                aliasedName("return_type", "Return Type"),
-                                aliasedName("argument_types", "Argument Types"),
-                                aliasedName("function_type", "Function Type"),
-                                aliasedName("deterministic", "Deterministic"),
-                                aliasedName("description", "Description")),
-                        table(QualifiedName.of(TABLE_INTERNAL_FUNCTIONS.getSchemaName(), TABLE_INTERNAL_FUNCTIONS.getTableName())),
-                        Optional.empty(),
-                        ImmutableList.<Expression>of(),
-                        Optional.empty(),
-                        ImmutableList.of(
-                                ascending("function_name"),
-                                ascending("return_type"),
-                                ascending("argument_types"),
-                                ascending("function_type")),
-                        Optional.empty()
-                ),
-                ImmutableList.<SortItem>of(),
-                Optional.empty(),
-                Optional.empty());
+        Query query = simpleQuery(selectList(
+                        aliasedName("function_name", "Function"),
+                        aliasedName("return_type", "Return Type"),
+                        aliasedName("argument_types", "Argument Types"),
+                        aliasedName("function_type", "Function Type"),
+                        aliasedName("deterministic", "Deterministic"),
+                        aliasedName("description", "Description")),
+                from(session.getCatalog(), TABLE_INTERNAL_FUNCTIONS),
+                ordering(
+                        ascending("function_name"),
+                        ascending("return_type"),
+                        ascending("argument_types"),
+                        ascending("function_type")));
 
         return process(query, context);
     }
@@ -388,43 +319,33 @@ class StatementAnalyzer
     {
         ImmutableList.Builder<Row> rows = ImmutableList.builder();
         for (Entry<String, String> property : new TreeMap<>(session.getSystemProperties()).entrySet()) {
-            rows.add(new Row(ImmutableList.<Expression>of(
+            rows.add(row(
                     new StringLiteral(property.getKey()),
                     new StringLiteral(property.getValue()),
-                    new BooleanLiteral("true"))));
+                    TRUE_LITERAL));
         }
         for (Entry<String, Map<String, String>> entry : new TreeMap<>(session.getCatalogProperties()).entrySet()) {
             String catalog = entry.getKey();
             for (Entry<String, String> property : new TreeMap<>(entry.getValue()).entrySet()) {
-                rows.add(new Row(ImmutableList.<Expression>of(
+                rows.add(row(
                         new StringLiteral(catalog + "." + property.getKey()),
                         new StringLiteral(property.getValue()),
-                        new BooleanLiteral("true"))));
+                        TRUE_LITERAL));
             }
         }
 
         // add bogus row so we can support empty sessions
-        rows.add(new Row(ImmutableList.<Expression>of(new StringLiteral(""), new StringLiteral(""), new BooleanLiteral("false"))));
+        rows.add(row(new StringLiteral(""), new StringLiteral(""), FALSE_LITERAL));
 
-        Query query = new Query(
-                Optional.<With>empty(),
-                new QuerySpecification(
-                        selectList(
-                                aliasedName("name", "Name"),
-                                aliasedName("value", "Value")),
-                        Optional.of(aliased(
-                                new Values(rows.build()),
-                                "session",
-                                ImmutableList.of("name", "value", "include"))),
-                        Optional.<Expression>empty(),
-                        ImmutableList.<Expression>of(),
-                        Optional.<Expression>of(nameReference("include")),
-                        ImmutableList.<SortItem>of(),
-                        Optional.<String>empty()
-                ),
-                ImmutableList.<SortItem>of(),
-                Optional.<String>empty(),
-                Optional.<Approximate>empty());
+        Query query = simpleQuery(
+                selectList(
+                        aliasedName("name", "Name"),
+                        aliasedName("value", "Value")),
+                aliased(
+                        new Values(rows.build()),
+                        "session",
+                        ImmutableList.of("name", "value", "include")),
+                nameReference("include"));
 
         return process(query, context);
     }
@@ -529,24 +450,12 @@ class StatementAnalyzer
 
         String queryPlan = getQueryPlan(node, planType, planFormat);
 
-        Query query = new Query(
-                Optional.empty(),
-                new QuerySpecification(
-                        selectList(new AllColumns()),
-                        Optional.of(aliased(
-                                values(row(new StringLiteral((queryPlan)))),
-                                "plan",
-                                ImmutableList.of("Query Plan")
-                        )),
-                        Optional.empty(),
-                        ImmutableList.<Expression>of(),
-                        Optional.empty(),
-                        ImmutableList.<SortItem>of(),
-                        Optional.empty()
-                ),
-                ImmutableList.<SortItem>of(),
-                Optional.empty(),
-                Optional.empty());
+        Query query = simpleQuery(
+                selectList(new AllColumns()),
+                aliased(
+                        values(row(new StringLiteral((queryPlan)))),
+                        "plan",
+                        ImmutableList.of("Query Plan")));
 
         return process(query, context);
     }
@@ -592,7 +501,7 @@ class StatementAnalyzer
         return descriptor;
     }
 
-    private List<FieldOrExpression> descriptorToFields(TupleDescriptor tupleDescriptor)
+    private static List<FieldOrExpression> descriptorToFields(TupleDescriptor tupleDescriptor)
     {
         ImmutableList.Builder<FieldOrExpression> builder = ImmutableList.builder();
         for (int fieldIndex = 0; fieldIndex < tupleDescriptor.getAllFieldCount(); fieldIndex++) {
@@ -649,7 +558,7 @@ class StatementAnalyzer
                         throw new SemanticException(INVALID_ORDINAL, expression, "ORDER BY position %s is not in select list", ordinal);
                     }
 
-                    orderByField = new FieldOrExpression((int) (ordinal - 1));
+                    orderByField = new FieldOrExpression(Ints.checkedCast(ordinal - 1));
                 }
                 else {
                     // otherwise, just use the expression as is
@@ -670,5 +579,10 @@ class StatementAnalyzer
         }
 
         analysis.setOrderByExpressions(node, orderByFieldsBuilder.build());
+    }
+
+    private static Relation from(String catalog, SchemaTableName table)
+    {
+        return table(QualifiedName.of(catalog, table.getSchemaName(), table.getTableName()));
     }
 }

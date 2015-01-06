@@ -20,7 +20,6 @@ import com.facebook.presto.split.SplitManager;
 import com.facebook.presto.split.SplitSource;
 import com.facebook.presto.sql.planner.plan.AggregationNode;
 import com.facebook.presto.sql.planner.plan.DistinctLimitNode;
-import com.facebook.presto.sql.planner.plan.ExchangeNode;
 import com.facebook.presto.sql.planner.plan.FilterNode;
 import com.facebook.presto.sql.planner.plan.IndexJoinNode;
 import com.facebook.presto.sql.planner.plan.JoinNode;
@@ -30,16 +29,17 @@ import com.facebook.presto.sql.planner.plan.OutputNode;
 import com.facebook.presto.sql.planner.plan.PlanNode;
 import com.facebook.presto.sql.planner.plan.PlanVisitor;
 import com.facebook.presto.sql.planner.plan.ProjectNode;
+import com.facebook.presto.sql.planner.plan.RemoteSourceNode;
 import com.facebook.presto.sql.planner.plan.RowNumberNode;
 import com.facebook.presto.sql.planner.plan.SampleNode;
 import com.facebook.presto.sql.planner.plan.SemiJoinNode;
-import com.facebook.presto.sql.planner.plan.SinkNode;
 import com.facebook.presto.sql.planner.plan.SortNode;
 import com.facebook.presto.sql.planner.plan.TableCommitNode;
 import com.facebook.presto.sql.planner.plan.TableScanNode;
 import com.facebook.presto.sql.planner.plan.TableWriterNode;
 import com.facebook.presto.sql.planner.plan.TopNNode;
 import com.facebook.presto.sql.planner.plan.TopNRowNumberNode;
+import com.facebook.presto.sql.planner.plan.UnionNode;
 import com.facebook.presto.sql.planner.plan.UnnestNode;
 import com.facebook.presto.sql.planner.plan.ValuesNode;
 import com.facebook.presto.sql.planner.plan.WindowNode;
@@ -133,9 +133,9 @@ public class DistributedExecutionPlanner
         }
 
         @Override
-        public Optional<SplitSource> visitExchange(ExchangeNode node, Void context)
+        public Optional<SplitSource> visitRemoteSource(RemoteSourceNode node, Void context)
         {
-            // exchange node does not have splits
+            // remote source node does not have splits
             return Optional.empty();
         }
 
@@ -247,12 +247,6 @@ public class DistributedExecutionPlanner
         }
 
         @Override
-        public Optional<SplitSource> visitSink(SinkNode node, Void context)
-        {
-            return node.getSource().accept(this, context);
-        }
-
-        @Override
         public Optional<SplitSource> visitTableWriter(TableWriterNode node, Void context)
         {
             return node.getSource().accept(this, context);
@@ -262,6 +256,25 @@ public class DistributedExecutionPlanner
         public Optional<SplitSource> visitTableCommit(TableCommitNode node, Void context)
         {
             return node.getSource().accept(this, context);
+        }
+
+        @Override
+        public Optional<SplitSource> visitUnion(UnionNode node, Void context)
+        {
+            Optional<SplitSource> result = Optional.empty();
+            for (PlanNode child : node.getSources()) {
+                Optional<SplitSource> source = child.accept(this, context);
+
+                if (result.isPresent() && source.isPresent()) {
+                    throw new IllegalArgumentException("Multiple children are source-distributed");
+                }
+
+                if (source.isPresent()) {
+                    result = source;
+                }
+            }
+
+            return result;
         }
 
         @Override

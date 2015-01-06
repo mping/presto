@@ -573,6 +573,15 @@ public abstract class AbstractTestQueries
     }
 
     @Test
+    public void testRepeatedOutputs2()
+            throws Exception
+    {
+        // this test exposed a bug that wasn't caught by other tests that resulted in the execution engine
+        // trying to read orderkey as the second field, causing a type mismatch
+        assertQuery("SELECT orderdate, orderdate, orderkey FROM orders");
+    }
+
+    @Test
     public void testLimit()
             throws Exception
     {
@@ -949,6 +958,12 @@ public abstract class AbstractTestQueries
         assertQuery("SELECT orderstatus FROM orders GROUP BY orderstatus");
     }
 
+    @Test
+    public void testNestedGroupByWithSameKey()
+            throws Exception
+    {
+        assertQuery("SELECT custkey, sum(t) FROM (SELECT custkey, count(*) t FROM orders GROUP BY custkey) GROUP BY custkey");
+    }
     @Test
     public void testGroupByWithNulls()
             throws Exception
@@ -2809,6 +2824,9 @@ public abstract class AbstractTestQueries
     {
         assertQuery("SELECT orderkey FROM orders UNION SELECT custkey FROM orders");
         assertQuery("SELECT 123 UNION DISTINCT SELECT 123 UNION ALL SELECT 123");
+
+        // mixed single-node vs fixed vs source-distributed
+        assertQuery("SELECT orderkey FROM orders UNION ALL SELECT 123 UNION ALL (SELECT custkey FROM orders GROUP BY custkey)");
     }
 
     @Test

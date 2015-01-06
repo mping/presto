@@ -36,6 +36,13 @@ import static com.google.common.base.Preconditions.checkArgument;
 public class ChildReplacer
         extends PlanVisitor<List<PlanNode>, PlanNode>
 {
+    private static final ChildReplacer INSTANCE = new ChildReplacer();
+
+    public static PlanNode replaceChildren(PlanNode node, List<PlanNode> children)
+    {
+        return node.accept(INSTANCE, children);
+    }
+
     @Override
     public PlanNode visitPlan(PlanNode node, List<PlanNode> newChildren)
     {
@@ -55,7 +62,7 @@ public class ChildReplacer
     }
 
     @Override
-    public PlanNode visitExchange(ExchangeNode node, List<PlanNode> newChildren)
+    public PlanNode visitRemoteSource(RemoteSourceNode node, List<PlanNode> newChildren)
     {
         checkArgument(newChildren.isEmpty(), "newChildren is not empty");
         return node;

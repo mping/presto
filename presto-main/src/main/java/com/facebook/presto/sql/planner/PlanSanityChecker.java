@@ -16,6 +16,7 @@ package com.facebook.presto.sql.planner;
 import com.facebook.presto.sql.planner.plan.AggregationNode;
 import com.facebook.presto.sql.planner.plan.DistinctLimitNode;
 import com.facebook.presto.sql.planner.plan.ExchangeNode;
+import com.facebook.presto.sql.planner.plan.RemoteSourceNode;
 import com.facebook.presto.sql.planner.plan.FilterNode;
 import com.facebook.presto.sql.planner.plan.IndexJoinNode;
 import com.facebook.presto.sql.planner.plan.IndexSourceNode;
@@ -30,7 +31,6 @@ import com.facebook.presto.sql.planner.plan.ProjectNode;
 import com.facebook.presto.sql.planner.plan.RowNumberNode;
 import com.facebook.presto.sql.planner.plan.SampleNode;
 import com.facebook.presto.sql.planner.plan.SemiJoinNode;
-import com.facebook.presto.sql.planner.plan.SinkNode;
 import com.facebook.presto.sql.planner.plan.SortNode;
 import com.facebook.presto.sql.planner.plan.TableCommitNode;
 import com.facebook.presto.sql.planner.plan.TableScanNode;
@@ -397,7 +397,7 @@ public final class PlanSanityChecker
         }
 
         @Override
-        public Void visitExchange(ExchangeNode node, Void context)
+        public Void visitRemoteSource(RemoteSourceNode node, Void context)
         {
             verifyUniqueId(node);
 
@@ -405,11 +405,8 @@ public final class PlanSanityChecker
         }
 
         @Override
-        public Void visitSink(SinkNode node, Void context)
+        public Void visitExchange(ExchangeNode node, Void context)
         {
-            PlanNode source = node.getSource();
-            source.accept(this, context); // visit child
-
             verifyUniqueId(node);
 
             return null;
@@ -433,9 +430,7 @@ public final class PlanSanityChecker
         @Override
         public Void visitTableCommit(TableCommitNode node, Void context)
         {
-            PlanNode source = node.getSource();
-            checkArgument(source instanceof TableWriterNode, "Invalid node. TableCommit source must be a TableWriter not %s", source.getClass().getSimpleName());
-            source.accept(this, context); // visit child
+            node.getSource().accept(this, context); // visit child
 
             verifyUniqueId(node);
 

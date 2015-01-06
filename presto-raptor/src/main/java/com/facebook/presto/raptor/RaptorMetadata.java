@@ -35,16 +35,13 @@ import com.facebook.presto.spi.SchemaTablePrefix;
 import com.facebook.presto.spi.ViewNotFoundException;
 import com.facebook.presto.spi.type.StandardTypes;
 import com.facebook.presto.spi.type.Type;
-import com.google.common.base.Predicate;
 import com.google.common.base.Splitter;
-import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableListMultimap;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Multimaps;
 import org.skife.jdbi.v2.Handle;
 import org.skife.jdbi.v2.IDBI;
-import org.skife.jdbi.v2.TransactionCallback;
 import org.skife.jdbi.v2.TransactionStatus;
 import org.skife.jdbi.v2.VoidTransactionCallback;
 import org.skife.jdbi.v2.exceptions.UnableToExecuteStatementException;
@@ -58,18 +55,20 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
-import java.util.concurrent.Callable;
+import java.util.function.Predicate;
 
 import static com.facebook.presto.raptor.RaptorColumnHandle.SAMPLE_WEIGHT_COLUMN_NAME;
+import static com.facebook.presto.raptor.RaptorErrorCode.RAPTOR_ERROR;
 import static com.facebook.presto.raptor.metadata.MetadataDaoUtils.createMetadataTablesWithRetry;
 import static com.facebook.presto.raptor.metadata.SqlUtils.runIgnoringConstraintViolation;
 import static com.facebook.presto.raptor.util.Types.checkType;
 import static com.facebook.presto.spi.StandardErrorCode.ALREADY_EXISTS;
+import static com.facebook.presto.spi.StandardErrorCode.NOT_FOUND;
 import static com.facebook.presto.spi.type.BigintType.BIGINT;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
-import static com.google.common.base.Preconditions.checkState;
-import static com.google.common.base.Predicates.not;
+import static java.lang.String.format;
+import static java.util.stream.Collectors.toList;
 
 public class RaptorMetadata
         implements ConnectorMetadata
@@ -142,14 +141,15 @@ public class RaptorMetadata
     @Override
     public ConnectorTableMetadata getTableMetadata(ConnectorTableHandle tableHandle)
     {
-        RaptorTableHandle raptorTableHandle = checkType(tableHandle, RaptorTableHandle.class, "tableHandle");
-        SchemaTableName tableName = new SchemaTableName(raptorTableHandle.getSchemaName(), raptorTableHandle.getTableName());
-        List<ColumnMetadata> columns = FluentIterable
-                .from(dao.getTableColumns(raptorTableHandle.getTableId()))
-                .transform(TableColumn.columnMetadataGetter())
-                .filter(not(isSampleWeightColumn()))
-                .toList();
-        checkArgument(!columns.isEmpty(), "Table %s does not have any columns", tableName);
+        RaptorTableHandle handle = checkType(tableHandle, RaptorTableHandle.class, "tableHandle");
+        SchemaTableName tableName = new SchemaTableName(handle.getSchemaName(), handle.getTableName());
+        List<ColumnMetadata> columns = dao.getTableColumns(handle.getTableId()).stream()
+                .map(TableColumn::toColumnMetadata)
+                .filter(isSampleWeightColumn().negate())
+                .collect(toList());
+        if (columns.isEmpty()) {
+            throw new PrestoException(RAPTOR_ERROR, "Table does not have any columns: " + tableName);
+        }
         return new ConnectorTableMetadata(tableName, columns);
     }
 
@@ -192,7 +192,9 @@ public class RaptorMetadata
         long columnId = checkType(columnHandle, RaptorColumnHandle.class, "columnHandle").getColumnId();
 
         TableColumn tableColumn = dao.getTableColumn(tableId, columnId);
-        checkState(tableColumn != null, "no column with id %s exists", columnId);
+        if (tableColumn == null) {
+            throw new PrestoException(NOT_FOUND, format("Column ID %s does not exist for table ID %s", columnId, tableId));
+        }
         return tableColumn.toColumnMetadata();
     }
 
@@ -213,38 +215,27 @@ public class RaptorMetadata
     }
 
     @Override
-    public ConnectorTableHandle createTable(ConnectorSession session, final ConnectorTableMetadata tableMetadata)
+    public ConnectorTableHandle createTable(ConnectorSession session, ConnectorTableMetadata tableMetadata)
     {
-        Long tableId = dbi.inTransaction(new TransactionCallback<Long>()
-        {
-            @Override
-            public Long inTransaction(final Handle handle, TransactionStatus status)
-                    throws Exception
-            {
-                // Ignore exception if table already exists
-                return runIgnoringConstraintViolation(new Callable<Long>()
-                {
-                    @Override
-                    public Long call()
-                            throws Exception
-                    {
-                        MetadataDao dao = handle.attach(MetadataDao.class);
-                        long tableId = dao.insertTable(connectorId, tableMetadata.getTable().getSchemaName(), tableMetadata.getTable().getTableName());
-                        int ordinalPosition = 0;
-                        for (ColumnMetadata column : tableMetadata.getColumns()) {
-                            long columnId = ordinalPosition + 1;
-                            dao.insertColumn(tableId, columnId, column.getName(), ordinalPosition, column.getType().getTypeSignature().toString());
-                            ordinalPosition++;
-                        }
-                        if (tableMetadata.isSampled()) {
-                            dao.insertColumn(tableId, ordinalPosition + 1, SAMPLE_WEIGHT_COLUMN_NAME, ordinalPosition, StandardTypes.BIGINT);
-                        }
-                        return tableId;
-                    }
-                }, null);
+        Long newTableId = dbi.inTransaction((handle, status) -> runIgnoringConstraintViolation(() -> {
+            MetadataDao dao = handle.attach(MetadataDao.class);
+            long tableId = dao.insertTable(connectorId, tableMetadata.getTable().getSchemaName(), tableMetadata.getTable().getTableName());
+            int ordinalPosition = 0;
+            for (ColumnMetadata column : tableMetadata.getColumns()) {
+                long columnId = ordinalPosition + 1;
+                dao.insertColumn(tableId, columnId, column.getName(), ordinalPosition, column.getType().getTypeSignature().toString());
+                ordinalPosition++;
             }
-        });
-        checkState(tableId != null, "table %s already exists", tableMetadata.getTable());
+            if (tableMetadata.isSampled()) {
+                dao.insertColumn(tableId, ordinalPosition + 1, SAMPLE_WEIGHT_COLUMN_NAME, ordinalPosition, StandardTypes.BIGINT);
+            }
+            return tableId;
+        }));
+
+        if (newTableId == null) {
+            throw new PrestoException(ALREADY_EXISTS, "Table already exists: " + tableMetadata.getTable());
+        }
+
         RaptorColumnHandle sampleWeightColumnHandle = null;
         if (tableMetadata.isSampled()) {
             sampleWeightColumnHandle = new RaptorColumnHandle(connectorId, SAMPLE_WEIGHT_COLUMN_NAME, tableMetadata.getColumns().size() + 1, BIGINT);
@@ -254,7 +245,7 @@ public class RaptorMetadata
                 connectorId,
                 tableMetadata.getTable().getSchemaName(),
                 tableMetadata.getTable().getTableName(),
-                tableId,
+                newTableId,
                 sampleWeightColumnHandle);
     }
 
@@ -320,25 +311,20 @@ public class RaptorMetadata
     @Override
     public void commitCreateTable(ConnectorOutputTableHandle outputTableHandle, Collection<String> fragments)
     {
-        final RaptorOutputTableHandle table = checkType(outputTableHandle, RaptorOutputTableHandle.class, "outputTableHandle");
+        RaptorOutputTableHandle table = checkType(outputTableHandle, RaptorOutputTableHandle.class, "outputTableHandle");
 
-        long tableId = dbi.inTransaction(new TransactionCallback<Long>()
-        {
-            @Override
-            public Long inTransaction(Handle dbiHandle, TransactionStatus status)
-            {
-                MetadataDao dao = dbiHandle.attach(MetadataDao.class);
-                long tableId = dao.insertTable(connectorId, table.getSchemaName(), table.getTableName());
-                for (int i = 0; i < table.getColumnTypes().size(); i++) {
-                    RaptorColumnHandle column = table.getColumnHandles().get(i);
-                    Type columnType = table.getColumnTypes().get(i);
-                    dao.insertColumn(tableId, i + 1, column.getColumnName(), i, columnType.getTypeSignature().toString());
-                }
-                return tableId;
+        long newTableId = dbi.inTransaction((dbiHandle, status) -> {
+            MetadataDao dao = dbiHandle.attach(MetadataDao.class);
+            long tableId = dao.insertTable(connectorId, table.getSchemaName(), table.getTableName());
+            for (int i = 0; i < table.getColumnTypes().size(); i++) {
+                RaptorColumnHandle column = table.getColumnHandles().get(i);
+                Type columnType = table.getColumnTypes().get(i);
+                dao.insertColumn(tableId, i + 1, column.getColumnName(), i, columnType.getTypeSignature().toString());
             }
+            return tableId;
         });
 
-        shardManager.commitTable(tableId, parseFragments(fragments), Optional.empty());
+        shardManager.commitTable(newTableId, parseFragments(fragments), Optional.empty());
     }
 
     @Override
@@ -454,13 +440,6 @@ public class RaptorMetadata
 
     private static Predicate<ColumnMetadata> isSampleWeightColumn()
     {
-        return new Predicate<ColumnMetadata>()
-        {
-            @Override
-            public boolean apply(ColumnMetadata input)
-            {
-                return input.getName().equals(SAMPLE_WEIGHT_COLUMN_NAME);
-            }
-        };
+        return input -> input.getName().equals(SAMPLE_WEIGHT_COLUMN_NAME);
     }
 }

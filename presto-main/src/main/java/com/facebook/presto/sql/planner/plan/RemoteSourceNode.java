@@ -18,54 +18,59 @@ import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableSet;
+
+import javax.annotation.concurrent.Immutable;
 
 import java.util.List;
 
-public class SinkNode
+@Immutable
+public class RemoteSourceNode
         extends PlanNode
 {
-    private final PlanNode source;
-    private final List<Symbol> outputSymbols; // Expected output symbol layout
+    private final List<PlanFragmentId> sourceFragmentIds;
+    private final List<Symbol> outputs;
 
     @JsonCreator
-    public SinkNode(@JsonProperty("id") PlanNodeId id,
-            @JsonProperty("source") PlanNode source,
-            @JsonProperty("outputSymbols") List<Symbol> outputSymbols)
+    public RemoteSourceNode(
+            @JsonProperty("id") PlanNodeId id,
+            @JsonProperty("sourceFragmentIds") List<PlanFragmentId> sourceFragmentIds,
+            @JsonProperty("outputs") List<Symbol> outputs)
     {
         super(id);
 
-        Preconditions.checkNotNull(source, "source is null");
-        Preconditions.checkNotNull(outputSymbols, "outputSymbols is null");
+        Preconditions.checkNotNull(outputs, "outputs is null");
 
-        this.source = source;
-        this.outputSymbols = ImmutableList.copyOf(outputSymbols);
-
-        Preconditions.checkArgument(ImmutableSet.copyOf(source.getOutputSymbols()).containsAll(this.outputSymbols), "Source output needs to be able to produce all of the required outputSymbols");
+        this.sourceFragmentIds = sourceFragmentIds;
+        this.outputs = ImmutableList.copyOf(outputs);
     }
 
-    @JsonProperty("source")
-    public PlanNode getSource()
+    public RemoteSourceNode(PlanNodeId id, PlanFragmentId sourceFragmentId, List<Symbol> outputs)
     {
-        return source;
+        this(id, ImmutableList.of(sourceFragmentId), outputs);
     }
 
     @Override
     public List<PlanNode> getSources()
     {
-        return ImmutableList.of(source);
+        return ImmutableList.of();
     }
 
     @Override
-    @JsonProperty("outputSymbols")
+    @JsonProperty("outputs")
     public List<Symbol> getOutputSymbols()
     {
-        return outputSymbols;
+        return outputs;
+    }
+
+    @JsonProperty("sourceFragmentIds")
+    public List<PlanFragmentId> getSourceFragmentIds()
+    {
+        return sourceFragmentIds;
     }
 
     @Override
     public <C, R> R accept(PlanVisitor<C, R> visitor, C context)
     {
-        return visitor.visitSink(this, context);
+        return visitor.visitRemoteSource(this, context);
     }
 }
