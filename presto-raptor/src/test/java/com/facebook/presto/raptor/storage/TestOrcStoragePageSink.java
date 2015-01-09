@@ -47,7 +47,7 @@ import static io.airlift.testing.FileUtils.deleteRecursively;
 import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertFalse;
 
-public class TestOrcPageSink
+public class TestOrcStoragePageSink
 {
     private File directory;
 
@@ -82,7 +82,7 @@ public class TestOrcPageSink
 
         try (ThreadContextClassLoader ignored = new ThreadContextClassLoader(new EmptyClassLoader());
              StoragePageSink sink = new OrcStoragePageSink(columnIds, columnTypes, file)) {
-            rowPagesBuilder.build().forEach(sink::appendPage);
+            sink.appendPages(rowPagesBuilder.build());
         }
 
         try (FileOrcDataSource dataSource = new FileOrcDataSource(file, new DataSize(1, Unit.MEGABYTE))) {
