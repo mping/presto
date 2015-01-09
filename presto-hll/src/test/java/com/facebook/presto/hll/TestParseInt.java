@@ -16,8 +16,8 @@ package com.facebook.presto.hll;
 import org.testng.Assert;
 import org.testng.annotations.Test;
 
-public class TestParseInt {
-
+public class TestParseInt
+{
     @Test
     public void testParseSomeInts()
     {
