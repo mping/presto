@@ -1,0 +1,180 @@
+<?xml version="1.0"?>
+<!--
+  Licensed to the Apache Software Foundation (ASF) under one or more
+  contributor license agreements.  See the NOTICE file distributed with
+  this work for additional information regarding copyright ownership.
+  The ASF licenses this file to You under the Apache License, Version 2.0
+  (the "License"); you may not use this file except in compliance with
+  the License.  You may obtain a copy of the License at
+
+      http://www.apache.org/licenses/LICENSE-2.0
+
+  Unless required by applicable law or agreed to in writing, software
+  distributed under the License is distributed on an "AS IS" BASIS,
+  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+  See the License for the specific language governing permissions and
+  limitations under the License.
+-->
+<?xml-stylesheet type="text/xsl" href="configuration.xsl"?>
+
+<configuration>
+
+<property>
+   <name>dfs.permissions.superusergroup</name>
+   <value>hadoop</value>
+</property>
+
+<property>
+  <name>dfs.namenode.name.dir</name>
+  <value>file:///servers/hadoop/dfs/name</value>
+  <description>Determines where on the local filesystem the DFS name node
+      should store the name table(fsimage).  If this is a comma-delimited list
+      of directories then the name table is replicated in all of the
+      directories, for redundancy. </description>
+</property>
+
+<property>
+  <name>dfs.datanode.data.dir</name>
+  <value>file:///servers/hdfs0/data</value>
+  <description>Determines where on the local filesystem an DFS data node
+  should store its blocks.  If this is a comma-delimited
+  list of directories, then data will be stored in all named
+  directories, typically on different devices.
+  Directories that do not exist are ignored.
+  </description>
+</property>
+
+<property>
+  <name>dfs.nameservices</name>
+  <value>hdp</value>
+  <description>
+    Comma-separated list of nameservices.
+  </description>
+</property>
+
+<property>
+  <name>dfs.ha.namenodes.hdp</name>
+  <value>hdp-namenode01,hdp-namenode02</value>
+</property>
+
+<property>
+  <name>dfs.namenode.rpc-address.hdp.hdp-namenode01</name>
+  <value>hdp-namenode01.mapred.bk.sapo.pt:8020</value>
+</property>
+
+<property>
+  <name>dfs.namenode.rpc-address.hdp.hdp-namenode02</name>
+  <value>hdp-namenode02.mapred.bk.sapo.pt:8020</value>
+</property>
+
+<property>
+  <name>dfs.federation.nameservices</name>
+  <value>hdp</value>
+  <description>
+    Comma-separated list of nameservices.
+  </description>
+</property>
+
+<property>
+  <name>dfs.namenode.http-address.hdp.hdp-namenode01</name>
+  <value>hdp-namenode01.mapred.bk.sapo.pt:50070</value>
+  <description>
+    The address and the base port on which the dfs NameNode Web UI will listen.
+    If the port is 0, the server will start on a free port.
+  </description>
+</property>
+
+<property>
+  <name>dfs.namenode.http-address.hdp.hdp-namenode02</name>
+  <value>hdp-namenode02.mapred.bk.sapo.pt:50070</value>
+  <description>
+    The address and the base port on which the dfs NameNode Web UI will listen.
+    If the port is 0, the server will start on a free port.
+  </description>
+</property>
+
+<property>
+  <name>dfs.namenode.shared.edits.dir</name>
+  <value>qjournal://hdp-namenode01.mapred.bk.sapo.pt:8485;hdp-namenode02.mapred.bk.sapo.pt:8485;hdp-node01.mapred.bk.sapo.pt:8485/hdp</value>
+  <description>A directory on shared storage between the multiple namenodes
+  in an HA cluster. This directory will be written by the active and read
+  by the standby in order to keep the namespaces synchronized. This directory
+  does not need to be listed in dfs.namenode.edits.dir above. It should be
+  left empty in a non-HA cluster.
+  </description>
+</property>
+
+<property>
+  <name>dfs.journalnode.edits.dir</name>
+  <value>/servers/hadoop/dfs/jn</value>
+</property>
+
+<property>
+  <name>dfs.client.failover.proxy.provider.hdp</name>
+  <value>org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider</value>
+</property>
+
+<property>
+  <name>dfs.ha.fencing.methods</name>
+  <value>sshfence</value>
+</property>
+
+<property>
+  <name>dfs.ha.fencing.ssh.private-key-files</name>
+  <value>/home/hdfs/.ssh/id_rsa</value>
+</property>
+
+<property>
+  <name>dfs.ha.fencing.ssh.connect-timeout</name>
+  <value>30000</value>
+  <description>
+    SSH connection timeout, in milliseconds, to use with the builtin
+    sshfence fencer.
+  </description>
+</property>
+
+<property>
+  <name>dfs.ha.automatic-failover.enabled</name>
+  <value>true</value>
+</property>
+
+<property>
+  <name>ha.zookeeper.quorum</name>
+  <value>hdp-namenode01.mapred.bk.sapo.pt:2181,hdp-namenode02.mapred.bk.sapo.pt:2181,hdp-node01.mapred.bk.sapo.pt:2181,hdp-node02.mapred.bk.sapo.pt:2181,hdp-node03.mapred.bk.sapo.pt:2181</value>
+</property>
+
+<property>
+  <name>dfs.namenode.checkpoint.check.period</name>
+  <value>3600</value>
+</property>
+<property>
+  <name>dfs.namenode.checkpoint.txns</name>
+  <value>40000</value>
+</property>
+<property>
+  <name>dfs.namenode.checkpoint.dir</name>
+  <value>/servers/hadoop/cache-dfs</value>
+</property>
+<property>
+  <name>dfs.namenode.checkpoint.edits.dir</name>
+  <value>/servers/hadoop/cache-dfs</value>
+</property>
+<property>
+  <name>dfs.namenode.num.checkpoints.retained</name>
+  <value>1</value>
+</property>
+
+<!--property>
+  <name>dfs.hosts.exclude</name>
+  <value>/servers/hadoop/shared/hdfsnodes.exclude</value>
+</property-->
+
+<property>
+  <name>dfs.webhdfs.enabled</name>
+  <value>true</value>
+ </property>
+ <property>
+   <name>dfs.support.append</name>
+   <value>true</value>
+ </property>
+</configuration>
