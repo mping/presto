@@ -16,7 +16,12 @@ package com.facebook.presto.hll;
 import com.facebook.presto.hll.impl.HLL;
 import com.facebook.presto.hll.impl.RegisterSet;
 import com.facebook.presto.hll.state.HLLState;
-import com.facebook.presto.operator.aggregation.*;
+import com.facebook.presto.operator.aggregation.AggregationCompiler;
+import com.facebook.presto.operator.aggregation.InputFunction;
+import com.facebook.presto.operator.aggregation.AggregationFunction;
+import com.facebook.presto.operator.aggregation.CombineFunction;
+import com.facebook.presto.operator.aggregation.OutputFunction;
+import com.facebook.presto.operator.aggregation.InternalAggregationFunction;
 import com.facebook.presto.spi.block.BlockBuilder;
 import com.facebook.presto.spi.type.StandardTypes;
 import com.facebook.presto.spi.type.Type;
@@ -32,7 +37,8 @@ import static com.facebook.presto.spi.type.VarcharType.VARCHAR;
  * TODO use ESTIMATOR and Murmur3 if the hashes are compatible
  */
 @AggregationFunction("hllagg")
-public final class HLLAggregation {
+public final class HLLAggregation
+{
     //    public static final InternalAggregationFunction LONG_APPROXIMATE_COUNT_DISTINCT_AGGREGATIONS = new AggregationCompiler().generateAggregationFunction(ApproximateCountDistinctAggregations.class, BIGINT, ImmutableList.<Type>of(BIGINT));
     //    public static final InternalAggregationFunction DOUBLE_APPROXIMATE_COUNT_DISTINCT_AGGREGATIONS = new AggregationCompiler().generateAggregationFunction(ApproximateCountDistinctAggregations.class, BIGINT, ImmutableList.<Type>of(DOUBLE));
     public static final InternalAggregationFunction VARBINARY_APPROXIMATE_COUNT_DISTINCT_AGGREGATIONS = new AggregationCompiler().generateAggregationFunction(HLLAggregation.class, BIGINT, ImmutableList.<Type>of(VARCHAR));
@@ -41,11 +47,13 @@ public final class HLLAggregation {
     private static final int FACTOR = 10;
     private static final int COUNT = (int) Math.pow(2, FACTOR);
 
-    private HLLAggregation() {
+    private HLLAggregation()
+    {
     }
 
     @InputFunction
-    public static void input(HLLState state, @SqlType(StandardTypes.VARCHAR) Slice value) {
+    public static void input(HLLState state, @SqlType(StandardTypes.VARCHAR) Slice value)
+    {
         // presto seems to be "reusing" the same state for a different slice
         // for queries without 'group by' clause > (select hllagg(col) from table);
         HLL sliceHLL = fromVarcharSlice(value);
@@ -77,13 +85,14 @@ public final class HLLAggregation {
     }
 
     @VisibleForTesting
-    static HLL fromVarcharSlice(Slice value) {
+    static HLL fromVarcharSlice(Slice value)
+    {
         //split seems ok http://stackoverflow.com/a/11002374
         //TODO this could be sped up for sure
         String[] values = new String(value.getBytes()).split(",");
         int[] ints = new int[values.length];
         for (int i = 0; i < values.length; i++) {
-            ints[i] = parseIntNoCheck(values[i]);//Integer.parseInt(values[i]);
+            ints[i] = parseIntNoCheck(values[i]); //Integer.parseInt(values[i]);
         }
         RegisterSet rs = new RegisterSet(COUNT, ints);
         HLL hll = new HLL(FACTOR, rs);
@@ -91,14 +100,16 @@ public final class HLLAggregation {
     }
 
     @CombineFunction
-    public static void combine(HLLState state, HLLState otherState) {
+    public static void combine(HLLState state, HLLState otherState)
+    {
         HLL input = otherState.getHLL();
         HLL previous = state.getHLL();
 
         if (previous == null) {
             state.setHLL(input);
             state.addMemoryUsage(input.sizeof());
-        } else {
+        }
+        else {
             state.addMemoryUsage(-previous.sizeof());
             previous = (HLL) previous.merge(input);
             state.setHLL(previous);
@@ -107,10 +118,12 @@ public final class HLLAggregation {
     }
 
     @OutputFunction(value = StandardTypes.BIGINT)
-    public static void output(HLLState state, BlockBuilder out) {
+    public static void output(HLLState state, BlockBuilder out)
+    {
         if (state.getHLL() != null) {
             BIGINT.writeLong(out, state.getHLL().cardinality());
-        } else {
+        }
+        else {
             BIGINT.writeLong(out, 0);
         }
     }
