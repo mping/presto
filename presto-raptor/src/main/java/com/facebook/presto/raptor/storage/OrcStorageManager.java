@@ -106,12 +106,7 @@ public class OrcStorageManager
 
             OrcPredicate predicate = getPredicate(effectivePredicate, indexMap);
 
-            OrcRecordReader recordReader = reader.createRecordReader(
-                    includedColumns.build(),
-                    predicate,
-                    0,
-                    dataSource.getSize(),
-                    UTC);
+            OrcRecordReader recordReader = reader.createRecordReader(includedColumns.build(), predicate, UTC);
 
             return new OrcPageSource(recordReader, dataSource, columnIds, columnTypes, columnIndexes.build());
         }
@@ -122,7 +117,7 @@ public class OrcStorageManager
             catch (IOException ex) {
                 e.addSuppressed(ex);
             }
-            throw new PrestoException(RAPTOR_ERROR, "Failed to create page source", e);
+            throw new PrestoException(RAPTOR_ERROR, "Failed to create page source for shard " + shardUuid, e);
         }
     }
 
