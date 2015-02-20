@@ -111,7 +111,7 @@ public class SqlQueryManager
 
         this.executionFactories = checkNotNull(executionFactories, "executionFactories is null");
 
-        this.queryExecutor = newCachedThreadPool(threadsNamed("query-scheduler-%d"));
+        this.queryExecutor = newCachedThreadPool(threadsNamed("query-scheduler-%s"));
         this.queryExecutorMBean = new ThreadPoolExecutorMBean((ThreadPoolExecutor) queryExecutor);
 
         checkNotNull(config, "config is null");
@@ -125,9 +125,9 @@ public class SqlQueryManager
         this.maxQueryHistory = config.getMaxQueryHistory();
         this.clientTimeout = config.getClientTimeout();
 
-        queryManagementExecutor = Executors.newScheduledThreadPool(config.getQueryManagerExecutorPoolSize(), threadsNamed("query-management-%d"));
+        queryManagementExecutor = Executors.newScheduledThreadPool(config.getQueryManagerExecutorPoolSize(), threadsNamed("query-management-%s"));
         queryManagementExecutorMBean = new ThreadPoolExecutorMBean((ThreadPoolExecutor) queryManagementExecutor);
-        queryManagementExecutor.scheduleAtFixedRate(new Runnable()
+        queryManagementExecutor.scheduleWithFixedDelay(new Runnable()
         {
             @Override
             public void run()
@@ -329,11 +329,7 @@ public class SqlQueryManager
             QueryId queryId = queryInfo.getQueryId();
 
             log.debug("Remove query %s", queryId);
-            QueryExecution query = queries.remove(queryId);
-            if (query != null) {
-                log.error("Query %s is %s, but still has a QueryExecution registered", queryId, queryInfo.getState());
-                query.fail(new AbandonedException("Query " + queryId, queryInfo.getQueryStats().getLastHeartbeat(), DateTime.now()));
-            }
+            queries.remove(queryId);
             expirationQueue.remove();
         }
     }
