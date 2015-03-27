@@ -67,23 +67,43 @@ public final class HLLAggregation
     {
     }
 
+    //https://cwiki.apache.org/confluence/display/Hive/LanguageManual+Types
+
     @InputFunction
     public static void inputVarchar(HLLState state, @SqlType(StandardTypes.VARCHAR) Slice value)
     {
         // presto seems to be "reusing" the same state for a different slice
         // for queries without 'group by' clause > (select hllagg(col) from table);
-        HLL sliceHLL = fromVarcharSlice(value);
-        HLL stateHLL = state.getHLL();
-        HLL merged = (stateHLL == null) ? sliceHLL : (HLL) stateHLL.merge(sliceHLL);
-        state.setHLL(merged);
+        mergeHLLs(state, fromVarcharSlice(value));
+
     }
 
     @InputFunction
-    public static void inputArray(HLLState state, @SqlType("array<bigint>") Slice value)
+    public static void inputArrayBigint(HLLState state, @SqlType("array<bigint>") Slice value)
     {
-        // presto seems to be "reusing" the same state for a different slice
-        // for queries without 'group by' clause > (select hllagg(col) from table);
-        HLL sliceHLL = fromArraySlice(value);
+        mergeHLLs(state, fromArraySlice(value));
+    }
+
+    @InputFunction
+    public static void inputArrayInt(HLLState state, @SqlType("array<int>") Slice value)
+    {
+        mergeHLLs(state, fromArraySlice(value));
+    }
+
+    @InputFunction
+    public static void inputArraySmallInt(HLLState state, @SqlType("array<smallint>") Slice value)
+    {
+        mergeHLLs(state, fromArraySlice(value));
+    }
+
+    @InputFunction
+    public static void inputArrayTinyInt(HLLState state, @SqlType("array<tinyint>") Slice value)
+    {
+        mergeHLLs(state, fromArraySlice(value));
+    }
+
+    private static void mergeHLLs(HLLState state, HLL sliceHLL)
+    {
         HLL stateHLL = state.getHLL();
         HLL merged = (stateHLL == null) ? sliceHLL : (HLL) stateHLL.merge(sliceHLL);
         state.setHLL(merged);
@@ -130,6 +150,7 @@ public final class HLLAggregation
     @VisibleForTesting
     static HLL fromArraySlice(Slice value)
     {
+        // copied from JsonFunctions, should probably optimizegst
         //TODO: untested
         int[] nums = new int[171]; //TODO refactor to allow variable size
         try (JsonParser parser = JSON_FACTORY.createJsonParser(value.getInput())) {
