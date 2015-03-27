@@ -26,12 +26,22 @@ import com.facebook.presto.spi.block.BlockBuilder;
 import com.facebook.presto.spi.type.StandardTypes;
 import com.facebook.presto.spi.type.Type;
 import com.facebook.presto.type.SqlType;
+import com.fasterxml.jackson.core.JsonFactory;
+import com.fasterxml.jackson.core.JsonParser;
+import com.fasterxml.jackson.core.JsonToken;
+import com.fasterxml.jackson.databind.MappingJsonFactory;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableList;
 import io.airlift.slice.Slice;
 
+import java.io.IOException;
+
 import static com.facebook.presto.spi.type.BigintType.BIGINT;
 import static com.facebook.presto.spi.type.VarcharType.VARCHAR;
+import static com.fasterxml.jackson.core.JsonFactory.Feature.CANONICALIZE_FIELD_NAMES;
+import static com.fasterxml.jackson.core.JsonToken.END_ARRAY;
+import static com.fasterxml.jackson.core.JsonToken.START_ARRAY;
+import static com.fasterxml.jackson.core.JsonToken.VALUE_NUMBER_INT;
 
 /**
  * TODO use ESTIMATOR and Murmur3 if the hashes are compatible
@@ -44,6 +54,12 @@ public final class HLLAggregation
     public static final InternalAggregationFunction VARBINARY_APPROXIMATE_COUNT_DISTINCT_AGGREGATIONS = new AggregationCompiler().generateAggregationFunction(HLLAggregation.class, BIGINT, ImmutableList.<Type>of(VARCHAR));
     //@SqlType("array<bigint>")
 
+    private static final JsonFactory JSON_FACTORY = new JsonFactory()
+            .disable(CANONICALIZE_FIELD_NAMES);
+
+    private static final JsonFactory MAPPING_JSON_FACTORY = new MappingJsonFactory()
+            .disable(CANONICALIZE_FIELD_NAMES);
+
     private static final int FACTOR = 10;
     private static final int COUNT = (int) Math.pow(2, FACTOR);
 
@@ -52,11 +68,22 @@ public final class HLLAggregation
     }
 
     @InputFunction
-    public static void input(HLLState state, @SqlType(StandardTypes.VARCHAR) Slice value)
+    public static void inputVarchar(HLLState state, @SqlType(StandardTypes.VARCHAR) Slice value)
     {
         // presto seems to be "reusing" the same state for a different slice
         // for queries without 'group by' clause > (select hllagg(col) from table);
         HLL sliceHLL = fromVarcharSlice(value);
+        HLL stateHLL = state.getHLL();
+        HLL merged = (stateHLL == null) ? sliceHLL : (HLL) stateHLL.merge(sliceHLL);
+        state.setHLL(merged);
+    }
+
+    @InputFunction
+    public static void inputArray(HLLState state, @SqlType("array<bigint>") Slice value)
+    {
+        // presto seems to be "reusing" the same state for a different slice
+        // for queries without 'group by' clause > (select hllagg(col) from table);
+        HLL sliceHLL = fromArraySlice(value);
         HLL stateHLL = state.getHLL();
         HLL merged = (stateHLL == null) ? sliceHLL : (HLL) stateHLL.merge(sliceHLL);
         state.setHLL(merged);
@@ -77,7 +104,9 @@ public final class HLLAggregation
         num = '0' - ch;
 
         int i = 1;
-        while (i < len) {
+        //dunno why but scalding maps numbers to floats with decimal
+        //should fix that
+        while (i < len && s.charAt(i) != '.') {
             num = num * 10 + '0' - s.charAt(i++);
         }
 
@@ -87,14 +116,51 @@ public final class HLLAggregation
     @VisibleForTesting
     static HLL fromVarcharSlice(Slice value)
     {
-        //split seems ok http://stackoverflow.com/a/11002374
-        //TODO this could be sped up for sure
+        //@SqlType("array<bigint>")
         String[] values = new String(value.getBytes()).split(",");
         int[] ints = new int[values.length];
         for (int i = 0; i < values.length; i++) {
             ints[i] = parseIntNoCheck(values[i]); //Integer.parseInt(values[i]);
         }
         RegisterSet rs = new RegisterSet(COUNT, ints);
+        HLL hll = new HLL(FACTOR, rs);
+        return hll;
+    }
+
+    @VisibleForTesting
+    static HLL fromArraySlice(Slice value)
+    {
+        //TODO: untested
+        int[] nums = new int[171]; //TODO refactor to allow variable size
+        try (JsonParser parser = JSON_FACTORY.createJsonParser(value.getInput())) {
+            if (parser.nextToken() != START_ARRAY) {
+                return null;   //error
+            }
+
+            int pos = 0;
+            while (true) {
+                JsonToken token = parser.nextToken();
+                if (token == null) {
+                    return null;
+                }
+                if (token == END_ARRAY) {
+                    break;
+                    //return false;
+                }
+                parser.skipChildren();
+
+                // we allow only ints and longs, longs shouldn't really be necessary
+                if ((token == VALUE_NUMBER_INT) &&
+                        ((parser.getNumberType() == JsonParser.NumberType.INT) || (parser.getNumberType() == JsonParser.NumberType.LONG))) {
+                    nums[pos++] = parser.getIntValue(); //TODO overflow
+                }
+            }
+        }
+        catch (IOException e) {
+            return null;
+        }
+
+        RegisterSet rs = new RegisterSet(COUNT, nums);
         HLL hll = new HLL(FACTOR, rs);
         return hll;
     }

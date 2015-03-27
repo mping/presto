@@ -26,4 +26,18 @@ public class TestParseInt
 
         Assert.assertEquals(num, 1234);
     }
+
+    @Test
+    public void testParseSomeIntsDecimalZero()
+    {
+        int num = HLLAggregation.parseIntNoCheck("0.0");
+        Assert.assertEquals(num, 0);
+    }
+
+    @Test
+    public void testParseSomeIntsDecimalVal()
+    {
+        int num = HLLAggregation.parseIntNoCheck("1.9");
+        Assert.assertEquals(num, 1);
+    }
 }
