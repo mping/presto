@@ -16,32 +16,29 @@ package com.facebook.presto.hll;
 import com.facebook.presto.hll.impl.HLL;
 import com.facebook.presto.hll.impl.RegisterSet;
 import com.facebook.presto.hll.state.HLLState;
+
 import com.facebook.presto.operator.aggregation.AggregationCompiler;
-import com.facebook.presto.operator.aggregation.InputFunction;
 import com.facebook.presto.operator.aggregation.AggregationFunction;
-import com.facebook.presto.operator.aggregation.CombineFunction;
+import com.facebook.presto.operator.aggregation.InputFunction;
 import com.facebook.presto.operator.aggregation.OutputFunction;
+import com.facebook.presto.operator.aggregation.CombineFunction;
 import com.facebook.presto.operator.aggregation.InternalAggregationFunction;
+import com.facebook.presto.spi.block.Block;
 import com.facebook.presto.spi.block.BlockBuilder;
 import com.facebook.presto.spi.type.StandardTypes;
 import com.facebook.presto.spi.type.Type;
 import com.facebook.presto.type.ArrayType;
 import com.facebook.presto.type.SqlType;
 import com.fasterxml.jackson.core.JsonFactory;
-import com.fasterxml.jackson.core.JsonParser;
-import com.fasterxml.jackson.core.JsonToken;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableList;
+import com.google.common.primitives.Ints;
 import io.airlift.slice.Slice;
-
-import java.io.IOException;
 
 import static com.facebook.presto.spi.type.BigintType.BIGINT;
 import static com.facebook.presto.spi.type.VarcharType.VARCHAR;
+import static com.facebook.presto.type.TypeUtils.readStructuralBlock;
 import static com.fasterxml.jackson.core.JsonFactory.Feature.CANONICALIZE_FIELD_NAMES;
-import static com.fasterxml.jackson.core.JsonToken.END_ARRAY;
-import static com.fasterxml.jackson.core.JsonToken.START_ARRAY;
-import static com.fasterxml.jackson.core.JsonToken.VALUE_NUMBER_INT;
 
 /**
  * TODO use ESTIMATOR and Murmur3 if the hashes are compatible
@@ -126,35 +123,16 @@ public final class HLLAggregation
     @VisibleForTesting
     static HLL fromArraySlice(Slice value)
     {
-        // copied from JsonFunctions, should probably optimizegst
-        //TODO: untested
-        int[] nums = new int[171]; //TODO refactor to allow variable size
-        try (JsonParser parser = JSON_FACTORY.createJsonParser(value.getInput())) {
-            if (parser.nextToken() != START_ARRAY) {
-                return null;   //error
-            }
-
-            int pos = 0;
-            while (true) {
-                JsonToken token = parser.nextToken();
-                if (token == null) {
-                    return null;
-                }
-                if (token == END_ARRAY) {
-                    break;
-                    //return false;
-                }
-                parser.skipChildren();
-
-                // we allow only ints and longs, longs shouldn't really be necessary
-                if ((token == VALUE_NUMBER_INT) &&
-                        ((parser.getNumberType() == JsonParser.NumberType.INT) || (parser.getNumberType() == JsonParser.NumberType.LONG))) {
-                    nums[pos++] = parser.getIntValue(); //TODO overflow
-                }
-            }
+        int magicLen = 171; //HLL magic number for 10 bits
+        Block arrayBlock = readStructuralBlock(value);
+        int arrayCount = arrayBlock.getPositionCount();
+        if (arrayCount != magicLen) {
+            throw new RuntimeException("Array has illegal size: expected " + magicLen + ", got: " + arrayCount);
         }
-        catch (IOException e) {
-            return null;
+
+        int[] nums = new int[magicLen];
+        for (int i = 0; i < arrayCount; i++) {
+            nums[i] = Ints.checkedCast(BIGINT.getLong(arrayBlock, i));
         }
 
         RegisterSet rs = new RegisterSet(COUNT, nums);
