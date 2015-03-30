@@ -25,11 +25,11 @@ import com.facebook.presto.operator.aggregation.InternalAggregationFunction;
 import com.facebook.presto.spi.block.BlockBuilder;
 import com.facebook.presto.spi.type.StandardTypes;
 import com.facebook.presto.spi.type.Type;
+import com.facebook.presto.type.ArrayType;
 import com.facebook.presto.type.SqlType;
 import com.fasterxml.jackson.core.JsonFactory;
 import com.fasterxml.jackson.core.JsonParser;
 import com.fasterxml.jackson.core.JsonToken;
-import com.fasterxml.jackson.databind.MappingJsonFactory;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableList;
 import io.airlift.slice.Slice;
@@ -49,16 +49,10 @@ import static com.fasterxml.jackson.core.JsonToken.VALUE_NUMBER_INT;
 @AggregationFunction("hllagg")
 public final class HLLAggregation
 {
-    //    public static final InternalAggregationFunction LONG_APPROXIMATE_COUNT_DISTINCT_AGGREGATIONS = new AggregationCompiler().generateAggregationFunction(ApproximateCountDistinctAggregations.class, BIGINT, ImmutableList.<Type>of(BIGINT));
-    //    public static final InternalAggregationFunction DOUBLE_APPROXIMATE_COUNT_DISTINCT_AGGREGATIONS = new AggregationCompiler().generateAggregationFunction(ApproximateCountDistinctAggregations.class, BIGINT, ImmutableList.<Type>of(DOUBLE));
-    public static final InternalAggregationFunction VARBINARY_APPROXIMATE_COUNT_DISTINCT_AGGREGATIONS = new AggregationCompiler().generateAggregationFunction(HLLAggregation.class, BIGINT, ImmutableList.<Type>of(VARCHAR));
-    //@SqlType("array<bigint>")
+    public static final InternalAggregationFunction VARBINARY_HLL_AGGREGATIONS = new AggregationCompiler().generateAggregationFunction(HLLAggregation.class, BIGINT, ImmutableList.<Type>of(VARCHAR));
+    public static final InternalAggregationFunction ARRAY_BIGINT_HLL_AGGREGATIONS = new AggregationCompiler().generateAggregationFunction(HLLAggregation.class, BIGINT, ImmutableList.<Type>of(new ArrayType(BIGINT)));
 
-    private static final JsonFactory JSON_FACTORY = new JsonFactory()
-            .disable(CANONICALIZE_FIELD_NAMES);
-
-    private static final JsonFactory MAPPING_JSON_FACTORY = new MappingJsonFactory()
-            .disable(CANONICALIZE_FIELD_NAMES);
+    private static final JsonFactory JSON_FACTORY = new JsonFactory().disable(CANONICALIZE_FIELD_NAMES);
 
     private static final int FACTOR = 10;
     private static final int COUNT = (int) Math.pow(2, FACTOR);
@@ -80,24 +74,6 @@ public final class HLLAggregation
 
     @InputFunction
     public static void inputArrayBigint(HLLState state, @SqlType("array<bigint>") Slice value)
-    {
-        mergeHLLs(state, fromArraySlice(value));
-    }
-
-    @InputFunction
-    public static void inputArrayInt(HLLState state, @SqlType("array<int>") Slice value)
-    {
-        mergeHLLs(state, fromArraySlice(value));
-    }
-
-    @InputFunction
-    public static void inputArraySmallInt(HLLState state, @SqlType("array<smallint>") Slice value)
-    {
-        mergeHLLs(state, fromArraySlice(value));
-    }
-
-    @InputFunction
-    public static void inputArrayTinyInt(HLLState state, @SqlType("array<tinyint>") Slice value)
     {
         mergeHLLs(state, fromArraySlice(value));
     }
