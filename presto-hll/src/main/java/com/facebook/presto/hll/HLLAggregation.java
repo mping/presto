@@ -16,7 +16,6 @@ package com.facebook.presto.hll;
 import com.facebook.presto.hll.impl.HLL;
 import com.facebook.presto.hll.impl.RegisterSet;
 import com.facebook.presto.hll.state.HLLState;
-
 import com.facebook.presto.operator.aggregation.AggregationCompiler;
 import com.facebook.presto.operator.aggregation.AggregationFunction;
 import com.facebook.presto.operator.aggregation.InputFunction;
@@ -29,7 +28,6 @@ import com.facebook.presto.spi.type.StandardTypes;
 import com.facebook.presto.spi.type.Type;
 import com.facebook.presto.type.ArrayType;
 import com.facebook.presto.type.SqlType;
-import com.fasterxml.jackson.core.JsonFactory;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableList;
 import com.google.common.primitives.Ints;
@@ -38,7 +36,6 @@ import io.airlift.slice.Slice;
 import static com.facebook.presto.spi.type.BigintType.BIGINT;
 import static com.facebook.presto.spi.type.VarcharType.VARCHAR;
 import static com.facebook.presto.type.TypeUtils.readStructuralBlock;
-import static com.fasterxml.jackson.core.JsonFactory.Feature.CANONICALIZE_FIELD_NAMES;
 
 /**
  * TODO use ESTIMATOR and Murmur3 if the hashes are compatible
@@ -48,8 +45,6 @@ public final class HLLAggregation
 {
     public static final InternalAggregationFunction VARBINARY_HLL_AGGREGATIONS = new AggregationCompiler().generateAggregationFunction(HLLAggregation.class, BIGINT, ImmutableList.<Type>of(VARCHAR));
     public static final InternalAggregationFunction ARRAY_BIGINT_HLL_AGGREGATIONS = new AggregationCompiler().generateAggregationFunction(HLLAggregation.class, BIGINT, ImmutableList.<Type>of(new ArrayType(BIGINT)));
-
-    private static final JsonFactory JSON_FACTORY = new JsonFactory().disable(CANONICALIZE_FIELD_NAMES);
 
     private static final int FACTOR = 10;
     private static final int COUNT = (int) Math.pow(2, FACTOR);
